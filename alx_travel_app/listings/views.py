@@ -1,4 +1,5 @@
 from django.shortcuts import render, get_object_or_404
+from alx_travel_app.listings.tasks import send_booking_confirmation
 from rest_framework import viewsets, status
 from .models import Listing, Booking, User, Payment
 from rest_framework.response import Response
@@ -112,8 +113,22 @@ class BookingViewSet(viewsets.ModelViewSet):
         return queryset.distinct()
     
     def perform_create(self, serializer):
-        # Automatically set the user to the logged-in user when creating a booking
-        serializer.save(user=self.request.user)
+        # Save the booking instance
+        booking = serializer.save()
+
+        # Prepare email content
+        user_email = booking.user.email if booking.user else None
+        if user_email:
+            booking_id = (
+                f"Booking ID: {booking.id}\n"
+                f"Destination: {booking.destination}\n"
+                f"Date: {booking.date}\n"
+                f"Status: {booking.status}\n"
+                f"Created at: {booking.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+
+            # Trigger Celery background task
+            send_booking_confirmation.delay(booking_id)
 
     @action(detail=False, methods=['get'])
     def my_bookings(self, request):
